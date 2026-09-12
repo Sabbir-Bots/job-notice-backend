@@ -2,25 +2,42 @@ name: Job Notice Scanner
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "*/30 * * * *"
+
+concurrency:
+  group: job-notice-scanner
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
-  scan:
+  run-scanner:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.10'
+          cache: 'pip'
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Run scanner
+      - name: Create Firebase Credentials
         env:
           FIREBASE_CREDENTIALS: ${{ secrets.FIREBASE_CREDENTIALS }}
-          FIREBASE_DB_URL: ${{ secrets.https://telegram-group-controller-default-rtdb.firebaseio.com}}
+        run: |
+          printf '%s' "$FIREBASE_CREDENTIALS" > firebase_credentials.json
+
+      - name: Run Python Scanner
+        env:
+          FIREBASE_DB_URL: ${{ secrets.FIREBASE_DB_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python scanner.py

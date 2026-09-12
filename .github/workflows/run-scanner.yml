@@ -1,0 +1,26 @@
+name: Job Notice Scanner
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scanner
+        env:
+          FIREBASE_CREDENTIALS: ${{ secrets.FIREBASE_CREDENTIALS }}
+          FIREBASE_DB_URL: ${{ secrets.FIREBASE_DB_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python scanner.py

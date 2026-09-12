@@ -3,10 +3,13 @@ import json
 import re
 import hashlib
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 import firebase_admin
 from firebase_admin import credentials, db, messaging
-import google.generativeai as genai
+from google import genai
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ---------- Setup ----------
 FIREBASE_DB_URL = os.environ["FIREBASE_DB_URL"]
@@ -15,9 +18,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 cred = credentials.Certificate("firebase_credentials.json")
 firebase_admin.initialize_app(cred, {"databaseURL": FIREBASE_DB_URL})
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; JobNoticeBot/1.0)"}
 ALL_NOTICES_TOPIC = "all_job_notices"
@@ -26,7 +27,7 @@ ALL_NOTICES_TOPIC = "all_job_notices"
 # ---------- Parser: national_portal (govt sites, bof.gov.bd style) ----------
 def parse_national_portal(source):
     url = source["base_url"].rstrip("/") + source["notice_path"]
-    resp = requests.get(url, headers=HEADERS, timeout=20)
+    resp = requests.get(url, headers=HEADERS, timeout=20, verify=False)
     soup = BeautifulSoup(resp.text, "html.parser")
 
     notices = []
@@ -57,7 +58,7 @@ def parse_national_portal(source):
 # ---------- Parser: ai_fallback (bdjobs, chakri.com style) ----------
 def parse_ai_fallback(source):
     url = source["base_url"].rstrip("/") + source["notice_path"]
-    resp = requests.get(url, headers=HEADERS, timeout=20)
+    resp = requests.get(url, headers=HEADERS, timeout=20, verify=False)
     soup = BeautifulSoup(resp.text, "html.parser")
 
     for tag in soup(["script", "style", "svg", "img"]):
@@ -73,7 +74,10 @@ HTML:
 {text_html}
 """
     try:
-        result = gemini_model.generate_content(prompt)
+        result = gemini_client.models.generate_content(
+            model="gemini-flash-latest",
+            contents=prompt,
+        )
         raw = result.text.strip()
         raw = re.sub(r"^```json|```$", "", raw).strip()
         items = json.loads(raw)
@@ -135,6 +139,7 @@ def process_source(source_id, source):
         return
 
     if not notices:
+        print(f"No notices found for {source_id}")
         return
 
     latest = notices[0]
@@ -153,6 +158,9 @@ def process_source(source_id, source):
 
     if current_hash != last_hash:
         send_fcm(source, latest)
+        print(f"New notice for {source_id}: {latest['title']}")
+    else:
+        print(f"No change for {source_id}")
 
 
 def main():

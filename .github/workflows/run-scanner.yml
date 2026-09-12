@@ -21,6 +21,6 @@ jobs:
       - name: Run scanner
         env:
           FIREBASE_CREDENTIALS: ${{ secrets.FIREBASE_CREDENTIALS }}
-          FIREBASE_DB_URL: ${{ secrets.FIREBASE_DB_URL }}
+          FIREBASE_DB_URL: ${{ secrets.https://telegram-group-controller-default-rtdb.firebaseio.com}}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python scanner.py

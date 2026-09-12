@@ -1,0 +1,37 @@
+{
+  "bof": {
+    "name_en": "Bangladesh Ordnance Factories (BOF)",
+    "name_bn": "বাংলাদেশ সমরাস্ত্র কারখানা (BOF)",
+    "type": "national_portal",
+    "base_url": "https://bof.gov.bd",
+    "notice_path": "/pages/notices"
+  },
+  "mof": {
+    "name_en": "Finance Division, Ministry of Finance",
+    "name_bn": "অর্থ বিভাগ, অর্থ মন্ত্রণালয়",
+    "type": "national_portal",
+    "base_url": "https://mof.gov.bd",
+    "notice_path": "/pages/notices"
+  },
+  "brdb": {
+    "name_en": "Bangladesh Rural Development Board",
+    "name_bn": "বাংলাদেশ পল্লী উন্নয়ন বোর্ড",
+    "type": "national_portal",
+    "base_url": "https://brdb.gov.bd",
+    "notice_path": "/pages/notices"
+  },
+  "bdjobs": {
+    "name_en": "BDJobs",
+    "name_bn": "বিডিজবস",
+    "type": "ai_fallback",
+    "base_url": "https://www.bdjobs.com",
+    "notice_path": "/"
+  },
+  "chakri": {
+    "name_en": "Chakri.com",
+    "name_bn": "চাকরি ডটকম",
+    "type": "ai_fallback",
+    "base_url": "https://chakri.com",
+    "notice_path": "/"
+  }
+}

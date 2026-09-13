@@ -40,4 +40,4 @@ jobs:
         env:
           FIREBASE_DB_URL: ${{ secrets.FIREBASE_DB_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python scanner.py
+        run: python main.py

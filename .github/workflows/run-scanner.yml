@@ -36,7 +36,7 @@ jobs:
         run: |
           printf '%s' "$FIREBASE_CREDENTIALS" > firebase_credentials.json
 
-      - name: Run Python Scanner
+      - name: Run Python Main
         env:
           FIREBASE_DB_URL: ${{ secrets.FIREBASE_DB_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

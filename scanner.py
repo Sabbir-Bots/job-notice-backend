@@ -4,6 +4,7 @@ import re
 import hashlib
 import requests
 import urllib3
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
 import firebase_admin
 from firebase_admin import credentials, db, messaging
@@ -22,12 +23,16 @@ gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; JobNoticeBot/1.0)"}
 ALL_NOTICES_TOPIC = "all_job_notices"
+ADMIN_ALERTS_TOPIC = "admin_alerts"
+FAIL_THRESHOLD = 3       # এতবার পরপর খালি ফলাফল পেলে অ্যাডমিন অ্যালার্ট যাবে
+MAX_WORKERS = 20         # একসাথে কতগুলো সাইট স্ক্র্যাপ হবে
+REQUEST_TIMEOUT = 15     # সেকেন্ড — স্লো/মৃত সাইটে বেশিক্ষণ আটকে থাকবে না
 
 
-# ---------- Parser: national_portal (govt sites, bof.gov.bd style) ----------
+# ---------- Parser: national_portal (govt sites, same টেমপ্লেট) ----------
 def parse_national_portal(source):
     url = source["base_url"].rstrip("/") + source["notice_path"]
-    resp = requests.get(url, headers=HEADERS, timeout=20, verify=False)
+    resp = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT, verify=False)
     soup = BeautifulSoup(resp.text, "html.parser")
 
     notices = []
@@ -55,10 +60,38 @@ def parse_national_portal(source):
     return notices
 
 
-# ---------- Parser: ai_fallback (bdjobs, chakri.com style) ----------
+# ---------- Parser: css_selector (config-driven, কোড ছাড়া নতুন সাইট যোগ করা যায়) ----------
+def parse_css_selector(source):
+    url = source["base_url"].rstrip("/") + source["notice_path"]
+    resp = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT, verify=False)
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    sel = source["selectors"]
+    notices = []
+    for item in soup.select(sel["item"]):
+        title_tag = item.select_one(sel["title"])
+        link_tag = item.select_one(sel["link"])
+        date_tag = item.select_one(sel.get("date", "")) if sel.get("date") else None
+
+        if not title_tag or not link_tag:
+            continue
+
+        link = link_tag.get("href", "")
+        if link.startswith("/"):
+            link = source["base_url"].rstrip("/") + link
+
+        notices.append({
+            "title": title_tag.get_text(strip=True),
+            "link": link,
+            "date": date_tag.get_text(strip=True) if date_tag else "",
+        })
+    return notices
+
+
+# ---------- Parser: ai_fallback (bdjobs/chakri.com — বর্তমানে স্কিপ করা, টেমপ্লেট হিসেবে রাখা) ----------
 def parse_ai_fallback(source):
     url = source["base_url"].rstrip("/") + source["notice_path"]
-    resp = requests.get(url, headers=HEADERS, timeout=20, verify=False)
+    resp = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT, verify=False)
     soup = BeautifulSoup(resp.text, "html.parser")
 
     for tag in soup(["script", "style", "svg", "img"]):
@@ -99,6 +132,7 @@ HTML:
 
 PARSERS = {
     "national_portal": parse_national_portal,
+    "css_selector": parse_css_selector,
     "ai_fallback": parse_ai_fallback,
 }
 
@@ -126,6 +160,45 @@ def send_fcm(source, notice):
         print(f"FCM send failed: {e}")
 
 
+def send_admin_alert(source_id, source, reason):
+    message = messaging.Message(
+        data={
+            "type": "source_broken",
+            "source_id": source_id,
+            "name_en": source["name_en"],
+            "reason": reason,
+        },
+        topic=ADMIN_ALERTS_TOPIC,
+    )
+    try:
+        messaging.send(message)
+        print(f"Admin alert sent for {source_id}")
+    except Exception as e:
+        print(f"Admin alert failed: {e}")
+
+
+def update_source_health(source_id, source, ok):
+    ref = db.reference(f"job_sources/{source_id}/status")
+    status = ref.get() or {}
+    consecutive_empty = status.get("consecutive_empty", 0)
+    alerted = status.get("alerted", False)
+
+    if ok:
+        ref.update({"consecutive_empty": 0, "alerted": False})
+        return
+
+    consecutive_empty += 1
+    ref.update({"consecutive_empty": consecutive_empty})
+
+    if consecutive_empty >= FAIL_THRESHOLD and not alerted:
+        send_admin_alert(
+            source_id, source,
+            f"{consecutive_empty} বার পরপর কোনো নোটিশ পাওয়া যায়নি — "
+            f"selector ভেঙে গেছে বা সাইট রিডিজাইন হয়েছে"
+        )
+        ref.update({"alerted": True})
+
+
 def process_source(source_id, source):
     parser = PARSERS.get(source["type"])
     if not parser:
@@ -136,11 +209,15 @@ def process_source(source_id, source):
         notices = parser(source)
     except Exception as e:
         print(f"Scrape failed for {source_id}: {e}")
+        update_source_health(source_id, source, ok=False)
         return
 
     if not notices:
         print(f"No notices found for {source_id}")
+        update_source_health(source_id, source, ok=False)
         return
+
+    update_source_health(source_id, source, ok=True)
 
     latest = notices[0]
     ref = db.reference(f"job_notices/{source_id}")
@@ -167,9 +244,32 @@ def main():
     with open("sources.json", "r", encoding="utf-8") as f:
         sources = json.load(f)
 
-    for source_id, source in sources.items():
-        print(f"Processing: {source_id}")
-        process_source(source_id, source)
+    active_sources = {
+        sid: s for sid, s in sources.items() if s["type"] != "ai_fallback"
+    }
+    skipped = len(sources) - len(active_sources)
+    if skipped:
+        print(f"Skipping {skipped} ai_fallback sources (disabled for now)")
+
+    print(f"Processing {len(active_sources)} sources with {MAX_WORKERS} workers...")
+
+    completed = 0
+    failed = 0
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {
+            executor.submit(process_source, sid, s): sid
+            for sid, s in active_sources.items()
+        }
+        for future in as_completed(futures):
+            sid = futures[future]
+            try:
+                future.result()
+                completed += 1
+            except Exception as e:
+                failed += 1
+                print(f"Unhandled error processing {sid}: {e}")
+
+    print(f"Done. Completed: {completed}, Failed: {failed}, Total: {len(active_sources)}")
 
 
 if __name__ == "__main__":

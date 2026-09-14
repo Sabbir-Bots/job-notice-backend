@@ -1,10 +1,17 @@
 from parsers import parse_national_portal, parse_css_selector, parse_ai_fallback
 from firebase_client import (
-    notice_hash,
-    send_fcm,
+    db,
+    local_now_string,
+    unix_now,
+    add_to_recent_notices,
+    send_push_notification,
     update_source_health,
-    get_notice_ref,
 )
+from config import MAX_NOTICES_PER_SOURCE
+
+
+def get_source_ref(source_id):
+    return db.reference(f"job_notices/{source_id}")
 
 
 def _run_parser(source, gemini_client):
@@ -19,36 +26,89 @@ def _run_parser(source, gemini_client):
 
 
 def process_source(source_id, source, gemini_client=None):
+    name_bn = source.get("name_bn", "")
+    name_en = source.get("name_en", "")
+    serial = source.get("serial_num", "")
+    result = {"outcome": None, "new_history": 0, "notified": None}
+
     try:
         notices = _run_parser(source, gemini_client)
     except Exception as e:
-        print(f"Scrape failed for {source_id}: {e}")
+        print(f"❌ [{name_bn}] স্ক্যান করতে গিয়ে সমস্যা হয়েছে: {e}")
         update_source_health(source_id, source, ok=False)
-        return
+        result["outcome"] = "failed"
+        return result
+
+    notices = notices[:MAX_NOTICES_PER_SOURCE]
 
     if not notices:
-        print(f"No notices found for {source_id}")
+        print(f"⚠️ [{name_bn}] কোনো notice পাওয়া যায়নি।")
         update_source_health(source_id, source, ok=False)
-        return
+        result["outcome"] = "no_notice"
+        return result
 
     update_source_health(source_id, source, ok=True)
 
+    ref = get_source_ref(source_id)
+    last_saved_title = ref.child("last_title").get()
     latest = notices[0]
-    ref = get_notice_ref(source_id)
-    last_hash = ref.child("last_hash").get()
-    current_hash = notice_hash(latest["title"])
+    notice_title, notice_link, notice_date = latest["title"], latest["link"], latest["date"]
 
-    ref.update({
-        "last_hash": current_hash,
-        "last_title": latest["title"],
-        "last_link": latest["link"],
-        "last_date": latest["date"],
-        "name_en": source["name_en"],
-        "name_bn": source["name_bn"],
-    })
+    # ---------- মূল নোড আপডেট ----------
+    ref.child("id").set(source_id)
+    ref.child("pbs").set(source_id)  # legacy field name, Android পাশের জন্য
+    ref.child("name_bn").set(name_bn)
+    ref.child("name_en").set(name_en)
+    ref.child("serial").set(serial)
+    ref.child("pbs_url").set(source["base_url"].rstrip("/") + source["notice_path"])
+    ref.child("last_title").set(notice_title)
+    ref.child("last_pdf").set(notice_link)
+    ref.child("last_notice_date").set(notice_date)
+    ref.child("last_scanned_at").set(local_now_string())
+    ref.child("last_scanned_at_unix").set(unix_now())
 
-    if current_hash != last_hash:
-        send_fcm(source, latest)
-        print(f"New notice for {source_id}: {latest['title']}")
+    # ---------- HISTORY (কখনো মোছা হবে না, শুধু নতুন title যোগ হবে) ----------
+    history_ref = ref.child("notices_history")
+    existing_history = history_ref.get() or {}
+    existing_titles = set()
+    if isinstance(existing_history, dict):
+        for value in existing_history.values():
+            if isinstance(value, dict):
+                old_title = value.get("notice_title")
+                if old_title:
+                    existing_titles.add(old_title)
+
+    newly_added_history = []
+    for item in notices:
+        item_title = item["title"]
+        if item_title not in existing_titles:
+            history_ref.push({
+                "id": source_id,
+                "pbs": source_id,
+                "name_bn": name_bn,
+                "name_en": name_en,
+                "serial": serial,
+                "notice_title": item_title,
+                "notice_link": item["link"],
+                "notice_date": item["date"],
+                "added_at": local_now_string(),
+                "added_at_unix": unix_now(),
+            })
+            existing_titles.add(item_title)
+            newly_added_history.append(item)
+
+    result["new_history"] = len(newly_added_history)
+
+    # ---------- ৭২-ঘণ্টা recent feed ----------
+    for item in newly_added_history:
+        add_to_recent_notices(source_id, name_bn, name_en, serial, item)
+
+    # ---------- FCM (শুধু top/সর্বশেষ notice বদলালে) ----------
+    if notice_title != last_saved_title:
+        print(f"🆕 [{name_bn}] নতুন নোটিশ পাওয়া গেছে! Title: {notice_title}")
+        result["notified"] = send_push_notification(source_id, name_bn, name_en, notice_title, notice_link)
     else:
-        print(f"No change for {source_id}")
+        print(f"✓ [{name_bn}] কোনো নতুন notice নেই।")
+
+    result["outcome"] = "success"
+    return result

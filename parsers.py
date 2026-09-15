@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 from config import HEADERS, REQUEST_TIMEOUT, ACTION_WORDS, GEMINI_MODEL
 
 DATE_PATTERN = re.compile(r"\d{1,2}[-/]\d{1,2}[-/]\d{2,4}")
+FILE_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".docx", ".doc", ".zip")
 
 
 # ---------- national_portal: সরকারি "জাতীয় তথ্য বাতায়ন" টেমপ্লেট ----------
@@ -22,12 +23,22 @@ def parse_national_portal(source):
         if not all_links:
             continue
 
-        # লিংক: প্রথমে "দেখুন"/action-word লিংক খুঁজবে, না পেলে শেষেরটা
+        # ১. প্রথমে সরাসরি ফাইল লিংক (pdf/image/doc ইত্যাদি)
         link_tag = None
         for a in all_links:
-            if a.get_text(strip=True).lower() in ACTION_WORDS:
+            href_path = a["href"].split("?")[0].strip().lower()
+            if href_path.endswith(FILE_EXTENSIONS):
                 link_tag = a
                 break
+
+        # ২. না পেলে "দেখুন"/action-word লিংক
+        if not link_tag:
+            for a in all_links:
+                if a.get_text(strip=True).lower() in ACTION_WORDS:
+                    link_tag = a
+                    break
+
+        # ৩. তাও না পেলে শেষ লিংক
         if not link_tag:
             link_tag = all_links[-1]
 

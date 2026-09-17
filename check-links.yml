@@ -1,0 +1,32 @@
+name: Check All Website Links
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check-links:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check URLs
+        run: |
+          while IFS= read -r url; do
+            url=$(echo "$url" | xargs)
+
+            [ -z "$url" ] && continue
+
+            echo "================================"
+            echo "Checking: $url"
+
+            curl -L -I \
+              --max-time 20 \
+              --connect-timeout 10 \
+              -sS \
+              -o /dev/null \
+              -w "HTTP: %{http_code} | Final URL: %{url_effective}\n" \
+              "$url" || echo "FAILED"
+
+          done < bd_office_links.txt

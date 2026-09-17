@@ -21,12 +21,35 @@ jobs:
             echo "================================"
             echo "Checking: $url"
 
-            curl -L -I \
+            # প্রথমে SSL verification সহ পরীক্ষা
+            result=$(curl -L -I \
               --max-time 20 \
               --connect-timeout 10 \
               -sS \
               -o /dev/null \
-              -w "HTTP: %{http_code} | Final URL: %{url_effective}\n" \
-              "$url" || echo "FAILED"
+              -w "%{http_code}" \
+              "$url" 2>&1)
+
+            if [[ "$result" =~ ^[1-5][0-9][0-9]$ ]]; then
+              echo "✅ OPEN - HTTP $result"
+              continue
+            fi
+
+            # SSL সমস্যার ক্ষেত্রে verification ছাড়া পরীক্ষা
+            echo "SSL verification failed. Retrying without SSL verification..."
+
+            result=$(curl -k -L -I \
+              --max-time 20 \
+              --connect-timeout 10 \
+              -sS \
+              -o /dev/null \
+              -w "%{http_code}" \
+              "$url" 2>&1)
+
+            if [[ "$result" =~ ^[1-5][0-9][0-9]$ ]]; then
+              echo "⚠️ OPEN - SSL CERTIFICATE PROBLEM - HTTP $result"
+            else
+              echo "❌ FAILED - $result"
+            fi
 
           done < bd_office_links.txt

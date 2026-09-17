@@ -1,16 +1,3 @@
-name: Check All Website Links
-
-on:
-  workflow_dispatch:
-
-jobs:
-  check-links:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Check URLs
         run: |
           while IFS= read -r url; do
@@ -21,22 +8,20 @@ jobs:
             echo "================================"
             echo "Checking: $url"
 
-            # প্রথমে SSL verification সহ পরীক্ষা
             result=$(curl -L -I \
               --max-time 20 \
               --connect-timeout 10 \
               -sS \
               -o /dev/null \
               -w "%{http_code}" \
-              "$url" 2>&1)
+              "$url" 2>/dev/null || true)
 
             if [[ "$result" =~ ^[1-5][0-9][0-9]$ ]]; then
               echo "✅ OPEN - HTTP $result"
               continue
             fi
 
-            # SSL সমস্যার ক্ষেত্রে verification ছাড়া পরীক্ষা
-            echo "SSL verification failed. Retrying without SSL verification..."
+            echo "SSL/Connection failed. Retrying..."
 
             result=$(curl -k -L -I \
               --max-time 20 \
@@ -44,12 +29,12 @@ jobs:
               -sS \
               -o /dev/null \
               -w "%{http_code}" \
-              "$url" 2>&1)
+              "$url" 2>/dev/null || true)
 
             if [[ "$result" =~ ^[1-5][0-9][0-9]$ ]]; then
-              echo "⚠️ OPEN - SSL CERTIFICATE PROBLEM - HTTP $result"
+              echo "⚠️ OPEN - SSL PROBLEM - HTTP $result"
             else
-              echo "❌ FAILED - $result"
+              echo "❌ FAILED - HTTP $result"
             fi
 
           done < bd_office_links.txt

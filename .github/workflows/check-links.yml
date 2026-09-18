@@ -1,0 +1,40 @@
+      - name: Check URLs
+        run: |
+          while IFS= read -r url; do
+            url=$(echo "$url" | xargs)
+
+            [ -z "$url" ] && continue
+
+            echo "================================"
+            echo "Checking: $url"
+
+            result=$(curl -L -I \
+              --max-time 20 \
+              --connect-timeout 10 \
+              -sS \
+              -o /dev/null \
+              -w "%{http_code}" \
+              "$url" 2>/dev/null || true)
+
+            if [[ "$result" =~ ^[1-5][0-9][0-9]$ ]]; then
+              echo "✅ OPEN - HTTP $result"
+              continue
+            fi
+
+            echo "SSL/Connection failed. Retrying..."
+
+            result=$(curl -k -L -I \
+              --max-time 20 \
+              --connect-timeout 10 \
+              -sS \
+              -o /dev/null \
+              -w "%{http_code}" \
+              "$url" 2>/dev/null || true)
+
+            if [[ "$result" =~ ^[1-5][0-9][0-9]$ ]]; then
+              echo "⚠️ OPEN - SSL PROBLEM - HTTP $result"
+            else
+              echo "❌ FAILED - HTTP $result"
+            fi
+
+          done < bd_office_links.txt

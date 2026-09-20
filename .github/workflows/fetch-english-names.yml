@@ -1,0 +1,30 @@
+name: Fetch English Names
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Fetch English names
+        run: python fetch_english_names.py
+
+      - name: Upload result
+        uses: actions/upload-artifact@v4
+        with:
+          name: sources-with-real-english-names
+          path: sources.json

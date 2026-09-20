@@ -25,9 +25,10 @@ import time
 from deep_translator import GoogleTranslator, MyMemoryTranslator
 
 INPUT_FILE = "sources.json"
-MAX_ATTEMPTS = 3
-RETRY_DELAY_SEC = 3
-SAVE_EVERY = 20
+MAX_ATTEMPTS = 2
+RETRY_DELAY_SEC = 15    # much longer backoff — respect "5 requests/sec" shared-IP limits
+BASE_DELAY_SEC = 3      # wait this long between every single translation, not just retries
+SAVE_EVERY = 10
 
 google = GoogleTranslator(source="bn", target="en")
 mymemory = MyMemoryTranslator(source="bn-IN", target="en-GB")
@@ -97,7 +98,7 @@ def main():
             else:
                 still_failed.append(name_bn)
                 print(f"    !! still failed after all retries: {name_bn}")
-            time.sleep(0.5)
+            time.sleep(BASE_DELAY_SEC)
 
         if i % SAVE_EVERY == 0:
             save(data)

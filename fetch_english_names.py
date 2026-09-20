@@ -34,7 +34,10 @@ import json
 import re
 import time
 import requests
+import urllib3
 from bs4 import BeautifulSoup
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 INPUT_FILE = "sources.json"
 TIMEOUT_SEC = 12

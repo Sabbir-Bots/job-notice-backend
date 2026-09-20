@@ -50,6 +50,18 @@ HEADERS_EN = {
 
 LANG_URL_CANDIDATES = ["?lang=en", "/en", "/?lang=en"]  # trimmed to the 3 most common
 
+# Some sites switch language via a cookie instead of a URL — try common
+# cookie name/value combinations used by this portal template family.
+LANG_COOKIE_CANDIDATES = [
+    {"lang": "en"},           # confirmed working (birtan.gov.bd) — try first
+    {"language": "english"},
+    {"language": "en"},
+    {"site_lang": "en"},
+    {"locale": "en"},
+    {"display_lang": "en"},
+    {"selected_lang": "en"},
+]
+
 TITLE_JUNK = [
     "Government of the People's Republic of Bangladesh",
     "-Government of the People's Republic of Bangladesh",
@@ -80,10 +92,10 @@ def clean_title(title: str) -> str:
     return t.strip(" -|").strip()
 
 
-def get_title(url: str):
+def get_title(url: str, cookies: dict = None):
     try:
         resp = requests.get(url, headers=HEADERS_EN, timeout=TIMEOUT_SEC,
-                             allow_redirects=True, verify=False)
+                             allow_redirects=True, verify=False, cookies=cookies)
         if resp.status_code >= 400:
             return None
         soup = BeautifulSoup(resp.text, "html.parser")
@@ -114,6 +126,14 @@ def get_english_name(base_url: str):
     title = get_title(base_url)
     if title and is_mostly_latin(title):
         return title, "homepage_title"
+
+    # try the confirmed cookie mechanism first (most likely to work across
+    # this whole portal-template family)
+    for cookie in LANG_COOKIE_CANDIDATES:
+        title = get_title(base_url, cookies=cookie)
+        if title and is_mostly_latin(title):
+            cookie_desc = ",".join(f"{k}={v}" for k, v in cookie.items())
+            return title, f"lang_cookie:{cookie_desc}"
 
     for suffix in LANG_URL_CANDIDATES:
         candidate_url = base_url.rstrip("/") + suffix

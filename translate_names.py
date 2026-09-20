@@ -30,7 +30,7 @@ RETRY_DELAY_SEC = 3
 SAVE_EVERY = 20
 
 google = GoogleTranslator(source="bn", target="en")
-mymemory = MyMemoryTranslator(source="bn-BD", target="en-GB")
+mymemory = MyMemoryTranslator(source="bn-IN", target="en-GB")
 
 
 def translate_one(text: str) -> str:

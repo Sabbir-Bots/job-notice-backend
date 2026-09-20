@@ -89,6 +89,10 @@ def clean_title(title: str) -> str:
     t = title.strip()
     for junk in TITLE_JUNK:
         t = t.replace(junk, "")
+    t = t.strip(" -|")
+    # Strip a leading "Home | " / "Home|" / "Home -" style prefix that this
+    # site template adds to every page's title, not just office names.
+    t = re.sub(r"^home\s*[\|\-–]\s*", "", t, flags=re.IGNORECASE)
     return t.strip(" -|").strip()
 
 
@@ -164,6 +168,19 @@ def save(data):
 def main():
     with open(INPUT_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
+
+    # Cleanup pass: strip "Home | " prefix from anything already saved
+    # (earlier runs, before this fix, saved it as part of the name)
+    cleaned = 0
+    for entry in data:
+        if entry.get("name_en"):
+            fixed = re.sub(r"^home\s*[\|\-–]\s*", "", entry["name_en"], flags=re.IGNORECASE).strip(" -|")
+            if fixed != entry["name_en"]:
+                entry["name_en"] = fixed
+                cleaned += 1
+    if cleaned:
+        log(f"Cleaned 'Home | ' prefix from {cleaned} already-saved entries.")
+        save(data)
 
     todo = [e for e in data if not e.get("name_en")]
     total = len(data)

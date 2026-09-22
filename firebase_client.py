@@ -12,6 +12,8 @@ from config import (
     FAIL_THRESHOLD,
     RECENT_NOTICE_HOURS,
     BD_TIMEZONE,
+    NOTIFICATION_MODE_PATH,
+    DEFAULT_NOTIFICATION_MODE,
 )
 
 cred = credentials.Certificate(FIREBASE_CREDENTIALS_FILE)
@@ -77,6 +79,25 @@ def finish_scanner_run(started_unix, stats):
     })
 
 
+# ---------- Notification mode (নতুন) ----------
+def get_notification_mode():
+    """Reads notification_settings/mode from Firebase. Returns "job_only"
+    or "all". Falls back to DEFAULT_NOTIFICATION_MODE if unset or invalid,
+    so a typo or missing path never accidentally spams every notice."""
+    try:
+        mode = db.reference(NOTIFICATION_MODE_PATH).get()
+    except Exception as e:
+        print(f"⚠️ notification mode read failed, using default: {e}")
+        return DEFAULT_NOTIFICATION_MODE
+
+    if mode not in ("job_only", "all"):
+        if mode is not None:
+            print(f"⚠️ unrecognized notification mode {mode!r}, using default")
+        return DEFAULT_NOTIFICATION_MODE
+
+    return mode
+
+
 # ---------- 72-hour recent-notice feed (PBS-এর today_latest_notice) ----------
 def cleanup_expired_recent_notices():
     now = unix_now()
@@ -103,7 +124,7 @@ def cleanup_expired_recent_notices():
     return deleted
 
 
-def add_to_recent_notices(source_id, name_bn, name_en, serial, item):
+def add_to_recent_notices(notice_id, source_id, name_bn, name_en, serial, item, is_job):
     created_unix = unix_now()
     expires_unix = created_unix + (RECENT_NOTICE_HOURS * 60 * 60)
 
@@ -116,13 +137,16 @@ def add_to_recent_notices(source_id, name_bn, name_en, serial, item):
         "notice_title": item.get("title", ""),
         "notice_link": item.get("link", ""),
         "notice_date": item.get("date", ""),
+        "is_job_notice": is_job,
         "created_at": local_now_string(),
         "created_at_unix": created_unix,
         "expires_at_unix": expires_unix,
         "expires_after_hours": RECENT_NOTICE_HOURS,
     }
     try:
-        db.reference("today_latest_notice").push(payload)
+        # deterministic key (notice_id) instead of push() — re-scanning the
+        # same notice overwrites the same entry instead of duplicating it
+        db.reference("today_latest_notice").child(notice_id).set(payload)
         return True
     except Exception as e:
         print(f"⚠️ 72-hour notice save failed: {e}")
@@ -130,7 +154,7 @@ def add_to_recent_notices(source_id, name_bn, name_en, serial, item):
 
 
 # ---------- FCM (data-only, PBS-এর মতোই, শুধু single global topic) ----------
-def send_push_notification(source_id, name_bn, name_en, title, link):
+def send_push_notification(source_id, name_bn, name_en, title, link, is_job):
     message = messaging.Message(
         data={
             "id": source_id,
@@ -139,6 +163,7 @@ def send_push_notification(source_id, name_bn, name_en, title, link):
             "body": title,
             "url": link,
             "source": name_bn,
+            "is_job_notice": "true" if is_job else "false",
             "click_action": "NOTICE_DETAILS",
         },
         topic=ALL_NOTICES_TOPIC,

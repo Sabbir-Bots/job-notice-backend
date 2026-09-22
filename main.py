@@ -9,6 +9,7 @@ from firebase_client import (
     finish_scanner_run,
     cleanup_expired_recent_notices,
     local_now_string,
+    get_notification_mode,
 )
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -60,6 +61,10 @@ def main():
     started_unix = start_scanner_run()
     cleanup_expired_recent_notices()
 
+    notification_mode = get_notification_mode()
+    print(f"🔔 Notification mode: {notification_mode} "
+          f"({'শুধু নিয়োগ বিজ্ঞপ্তি' if notification_mode == 'job_only' else 'সব ধরনের নোটিশ'})")
+
     stats = {
         "total": len(sources),
         "success": 0,
@@ -78,7 +83,7 @@ def main():
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {
-            executor.submit(process_source, sid, s, gemini_client): sid
+            executor.submit(process_source, sid, s, gemini_client, notification_mode): sid
             for sid, s in active_sources.items()
         }
         for future in as_completed(futures):

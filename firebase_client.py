@@ -20,7 +20,7 @@ cred = credentials.Certificate(FIREBASE_CREDENTIALS_FILE)
 firebase_admin.initialize_app(cred, {"databaseURL": FIREBASE_DB_URL})
 
 
-# ---------- Time helpers (PBS-এর মতোই) ----------
+# ---------- Time helpers ----------
 def utc_now():
     return datetime.now(timezone.utc)
 
@@ -33,7 +33,7 @@ def unix_now():
     return int(time.time())
 
 
-# ---------- Scanner run status (PBS-এর last_updated + scanner_status) ----------
+# ---------- Scanner run status (last_updated + scanner_status) ----------
 def start_scanner_run():
     started_unix = unix_now()
     started_readable = local_now_string()
@@ -111,7 +111,7 @@ def get_notification_mode():
     return mode
 
 
-# ---------- 72-hour recent-notice feed (PBS-এর today_latest_notice) ----------
+# ---------- 72-hour recent-notice feed (today_latest_notice) ----------
 def cleanup_expired_recent_notices():
     now = unix_now()
     recent_ref = db.reference("today_latest_notice")
@@ -144,7 +144,7 @@ def add_to_recent_notices(notice_id, source_id, name_bn, name_en, serial, item, 
     payload = {
         "notice_id": notice_id,
         "id": source_id,
-        "pbs": source_id,  # legacy field name — Android side backward-compatibility
+        "job": source_id,  # আগের PBS প্রজেক্টের "pbs" ফিল্ডের নতুন নাম — Android app এটা পড়ে
         "name_bn": name_bn,
         "name_en": name_en,
         "serial": serial,
@@ -167,7 +167,7 @@ def add_to_recent_notices(notice_id, source_id, name_bn, name_en, serial, item, 
         return False
 
 
-# ---------- FCM (data-only, PBS-এর মতোই, শুধু single global topic) ----------
+# ---------- FCM (data-only, single global topic) ----------
 def send_push_notification(source_id, name_bn, name_en, title, link, is_job):
     message = messaging.Message(
         data={

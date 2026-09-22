@@ -7,9 +7,10 @@ from firebase_client import (
     send_push_notification,
     update_source_health,
 )
-from config import MAX_NOTICES_PER_SOURCE
+from config import MAX_NOTICES_PER_SOURCE, NOTICE_MAX_AGE_DAYS
 from notice_id import generate_notice_id
 from job_classifier import is_job_notice
+from notice_date import is_notice_too_old
 
 
 def get_source_ref(source_id):
@@ -59,15 +60,13 @@ def process_source(source_id, source, gemini_client=None, notification_mode="job
 
     # ---------- মূল নোড আপডেট ----------
     ref.child("id").set(source_id)
-    ref.child("pbs").set(source_id)  # legacy field name, Android পাশের জন্য
     ref.child("name_bn").set(name_bn)
     ref.child("name_en").set(name_en)
-    ref.child("serial").set(serial)
-    ref.child("pbs_url").set(source["base_url"].rstrip("/") + source["notice_path"])
+    ref.child("serial_num").set(serial)
+    ref.child("web_url").set(source["base_url"].rstrip("/") + source["notice_path"])
     ref.child("last_title").set(notice_title)
     ref.child("last_pdf").set(notice_link)
     ref.child("last_notice_date").set(notice_date)
-    ref.child("last_is_job_notice").set(latest_is_job_for_node)
     ref.child("last_scanned_at").set(local_now_string())
     ref.child("last_scanned_at_unix").set(unix_now())
 
@@ -83,29 +82,37 @@ def process_source(source_id, source, gemini_client=None, notification_mode="job
                     existing_titles.add(old_title)
 
     newly_added_history = []
+    skipped_old = 0
     for item in notices:
         item_title = item["title"]
-        if item_title not in existing_titles:
-            notice_id = generate_notice_id(serial, item_title, item["link"])
-            item_is_job = is_job_notice(item_title)
-            history_ref.child(notice_id).set({
-                "notice_id": notice_id,
-                "id": source_id,
-                "pbs": source_id,
-                "name_bn": name_bn,
-                "name_en": name_en,
-                "serial": serial,
-                "notice_title": item_title,
-                "notice_link": item["link"],
-                "notice_date": item["date"],
-                "is_job_notice": item_is_job,
-                "added_at": local_now_string(),
-                "added_at_unix": unix_now(),
-            })
-            existing_titles.add(item_title)
-            item["notice_id"] = notice_id
-            item["is_job_notice"] = item_is_job
-            newly_added_history.append(item)
+        if item_title in existing_titles:
+            continue
+        if is_notice_too_old(item["date"], NOTICE_MAX_AGE_DAYS):
+            skipped_old += 1
+            continue
+
+        notice_id = generate_notice_id(serial, item_title, item["link"])
+        item_is_job = is_job_notice(item_title)
+        history_ref.child(notice_id).set({
+            "notice_id": notice_id,
+            "id": source_id,
+            "name_bn": name_bn,
+            "name_en": name_en,
+            "notice_title": item_title,
+            "notice_link": item["link"],
+            "notice_date": item["date"],
+            "is_job_notice": item_is_job,
+            "added_at": local_now_string(),
+            "added_at_unix": unix_now(),
+        })
+        existing_titles.add(item_title)
+        item["notice_id"] = notice_id
+        item["is_job_notice"] = item_is_job
+        newly_added_history.append(item)
+
+    if skipped_old:
+        print(f"⏭️ [{name_bn}] {skipped_old}টা নোটিশ {NOTICE_MAX_AGE_DAYS} দিনের চেয়ে "
+              f"পুরনো বলে বাদ দেওয়া হলো (সেভ হয়নি)।")
 
     result["new_history"] = len(newly_added_history)
 

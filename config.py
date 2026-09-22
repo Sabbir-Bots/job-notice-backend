@@ -31,13 +31,19 @@ ADMIN_ALERTS_TOPIC = "admin_alerts"
 NOTIFICATION_MODE_PATH = "notification_settings/mode"
 DEFAULT_NOTIFICATION_MODE = "job_only"   # "job_only" or "all"
 
-# ---------- Health tracking (নতুন সংযোজন, PBS-এ ছিল না) ----------
+# ---------- Notice retention (নতুন) ----------
+# Notices older than this are not saved at all (keeps Firebase small).
+# Applies at scan time going forward — does NOT clean up old data already
+# saved before this was added; use cleanup_old_notices.py for that.
+NOTICE_MAX_AGE_DAYS = 365
+
+# ---------- Health tracking ----------
 FAIL_THRESHOLD = 3
 
 # ---------- Concurrency ----------
 MAX_WORKERS = 20
 
-# ---------- Notice retention (PBS-এর মতোই) ----------
+# ---------- Notice retention ----------
 MAX_NOTICES_PER_SOURCE = 10   # প্রতি স্ক্যানে টেবিল থেকে সর্বোচ্চ কতগুলো item নেওয়া হবে
 RECENT_NOTICE_HOURS = 72      # today_latest_notice ফিডের এক্সপায়ারি
 

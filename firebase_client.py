@@ -83,7 +83,12 @@ def finish_scanner_run(started_unix, stats):
 def get_notification_mode():
     """Reads notification_settings/mode from Firebase. Returns "job_only"
     or "all". Falls back to DEFAULT_NOTIFICATION_MODE if unset or invalid,
-    so a typo or missing path never accidentally spams every notice."""
+    so a typo or missing path never accidentally spams every notice.
+
+    If the path doesn't exist yet, this WRITES the default value there —
+    so after the first run, the node shows up in the Firebase console and
+    you can flip it to "all" directly from there, instead of it silently
+    only existing as an in-code fallback."""
     try:
         mode = db.reference(NOTIFICATION_MODE_PATH).get()
     except Exception as e:
@@ -93,6 +98,14 @@ def get_notification_mode():
     if mode not in ("job_only", "all"):
         if mode is not None:
             print(f"⚠️ unrecognized notification mode {mode!r}, using default")
+        else:
+            # path doesn't exist yet — create it so it's visible in console
+            try:
+                db.reference(NOTIFICATION_MODE_PATH).set(DEFAULT_NOTIFICATION_MODE)
+                print(f"ℹ️ notification_settings/mode ছিল না, "
+                      f"'{DEFAULT_NOTIFICATION_MODE}' বসিয়ে তৈরি করা হলো")
+            except Exception as e:
+                print(f"⚠️ notification_settings/mode তৈরি করা যায়নি: {e}")
         return DEFAULT_NOTIFICATION_MODE
 
     return mode
@@ -129,6 +142,7 @@ def add_to_recent_notices(notice_id, source_id, name_bn, name_en, serial, item, 
     expires_unix = created_unix + (RECENT_NOTICE_HOURS * 60 * 60)
 
     payload = {
+        "notice_id": notice_id,
         "id": source_id,
         "pbs": source_id,  # legacy field name — Android side backward-compatibility
         "name_bn": name_bn,

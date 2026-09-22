@@ -89,6 +89,7 @@ def process_source(source_id, source, gemini_client=None, notification_mode="job
             notice_id = generate_notice_id(serial, item_title, item["link"])
             item_is_job = is_job_notice(item_title)
             history_ref.child(notice_id).set({
+                "notice_id": notice_id,
                 "id": source_id,
                 "pbs": source_id,
                 "name_bn": name_bn,

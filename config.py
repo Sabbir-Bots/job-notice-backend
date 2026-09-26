@@ -21,15 +21,6 @@ REQUEST_DELAY_SECONDS = 1
 ALL_NOTICES_TOPIC = "all_job_notices"
 ADMIN_ALERTS_TOPIC = "admin_alerts"
 
-# ---------- Notification mode (নতুন) ----------
-# Firebase RTDB path that controls whether FCM push goes out for EVERY new
-# notice ("all") or ONLY for ones classified as job/recruitment notices
-# ("job_only"). Read once per scan run. If the path doesn't exist yet or
-# has an unrecognized value, DEFAULT_NOTIFICATION_MODE is used — so the
-# very first run (before anyone sets this in Firebase) is safe/quiet by
-# default rather than spamming every notice type.
-NOTIFICATION_MODE_PATH = "notification_settings/mode"
-DEFAULT_NOTIFICATION_MODE = "job_only"   # "job_only" or "all"
 
 # ---------- Notice retention (নতুন) ----------
 # Notices older than this are not saved at all (keeps Firebase small).

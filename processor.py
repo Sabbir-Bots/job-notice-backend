@@ -28,7 +28,7 @@ def _run_parser(source, gemini_client):
     raise ValueError(f"Unknown parser type: {parser_type}")
 
 
-def process_source(source_id, source, gemini_client=None, notification_mode="job_only"):
+def process_source(source_id, source, gemini_client=None):
     name_bn = source.get("name_bn", "")
     name_en = source.get("name_en", "")
     serial = source.get("serial_num", "")
@@ -54,9 +54,22 @@ def process_source(source_id, source, gemini_client=None, notification_mode="job
 
     ref = get_source_ref(source_id)
     last_saved_title = ref.child("last_title").get()
-    latest = notices[0]
+
+    # শুধু job notice + ১ বছরের মধ্যেরগুলোই আমলে নিচ্ছি — বাকি সব শুরুতেই বাদ
+    relevant_notices = [
+        n for n in notices
+        if is_job_notice(n["title"]) and not is_notice_too_old(n["date"], NOTICE_MAX_AGE_DAYS)
+    ]
+
+    if not relevant_notices:
+        print(f"✓ [{name_bn}] এই স্ক্যানে প্রাসঙ্গিক (job/সাম্প্রতিক) কোনো notice নেই।")
+        ref.child("last_scanned_at").set(local_now_string())
+        ref.child("last_scanned_at_unix").set(unix_now())
+        result["outcome"] = "success"
+        return result
+
+    latest = relevant_notices[0]
     notice_title, notice_link, notice_date = latest["title"], latest["link"], latest["date"]
-    latest_is_job_for_node = is_job_notice(notice_title)
 
     # ---------- মূল নোড আপডেট ----------
     ref.child("id").set(source_id)
@@ -82,17 +95,12 @@ def process_source(source_id, source, gemini_client=None, notification_mode="job
                     existing_titles.add(old_title)
 
     newly_added_history = []
-    skipped_old = 0
-    for item in notices:
+    for item in relevant_notices:
         item_title = item["title"]
         if item_title in existing_titles:
             continue
-        if is_notice_too_old(item["date"], NOTICE_MAX_AGE_DAYS):
-            skipped_old += 1
-            continue
 
         notice_id = generate_notice_id(serial, item_title, item["link"])
-        item_is_job = is_job_notice(item_title)
         history_ref.child(notice_id).set({
             "notice_id": notice_id,
             "id": source_id,
@@ -101,43 +109,27 @@ def process_source(source_id, source, gemini_client=None, notification_mode="job
             "notice_title": item_title,
             "notice_link": item["link"],
             "notice_date": item["date"],
-            "is_job_notice": item_is_job,
             "added_at": local_now_string(),
             "added_at_unix": unix_now(),
         })
         existing_titles.add(item_title)
         item["notice_id"] = notice_id
-        item["is_job_notice"] = item_is_job
         newly_added_history.append(item)
-
-    if skipped_old:
-        print(f"⏭️ [{name_bn}] {skipped_old}টা নোটিশ {NOTICE_MAX_AGE_DAYS} দিনের চেয়ে "
-              f"পুরনো বলে বাদ দেওয়া হলো (সেভ হয়নি)।")
 
     result["new_history"] = len(newly_added_history)
 
     # ---------- ৭২-ঘণ্টা recent feed ----------
     for item in newly_added_history:
         add_to_recent_notices(
-            item["notice_id"], source_id, name_bn, name_en, serial, item, item["is_job_notice"]
+            item["notice_id"], source_id, name_bn, name_en, serial, item
         )
 
-    # ---------- FCM (শুধু top/সর্বশেষ notice বদলালে) ----------
+    # ---------- FCM (শুধু top/সর্বশেষ job notice বদলালে) ----------
     if notice_title != last_saved_title:
-        latest_is_job = latest_is_job_for_node
-        should_notify = (notification_mode == "all") or (
-            notification_mode == "job_only" and latest_is_job
+        print(f"🆕 [{name_bn}] নতুন নিয়োগ বিজ্ঞপ্তি পাওয়া গেছে! Title: {notice_title}")
+        result["notified"] = send_push_notification(
+            source_id, name_bn, name_en, notice_title, notice_link
         )
-        print(f"🆕 [{name_bn}] নতুন নোটিশ পাওয়া গেছে! Title: {notice_title} "
-              f"(job_notice={latest_is_job}, mode={notification_mode})")
-        if should_notify:
-            result["notified"] = send_push_notification(
-                source_id, name_bn, name_en, notice_title, notice_link, latest_is_job
-            )
-        else:
-            print(f"🔕 [{name_bn}] mode='{notification_mode}' অনুযায়ী FCM পাঠানো হয়নি "
-                  f"(general notice, job-only mode চালু আছে)।")
-            result["notified"] = None
     else:
         print(f"✓ [{name_bn}] কোনো নতুন notice নেই।")
 
